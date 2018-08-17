@@ -1,0 +1,299 @@
+#envi
+echo "####### deploy start: "`date`
+echo 
+source /home/user/ci/deploy.sh
+source /home/user/ci/build.sh
+source /home/user/ci/repository.sh
+pub_path=/arthas/sites/
+webents=${_webents//,/' '}
+_rpc=${RPC//,/' '}
+_little=${little_pro//,/' '}
+
+
+#逻辑：识别accesslog 60s内无变化执行发布
+default_log_path="/arthas/servers/apache-tomcat-8.5.4-80/logs/"
+log_tail="_access_log.`date +%Y-%m-%d`.txt"
+
+#load blance set to 0
+
+if [[ -n "${webents}" ]]
+  then
+  #调用阿里云slb api，具体请参考官方文档
+  echo "####### ############ loadblance set start"
+  for webent in ${webents[@]}
+  do
+
+    if [[ ${webent} == 'You-Project' ]] || [[  ${webent} == 'You-Project' ]] 
+      then
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+    fi  
+
+    if [[ ${webent} == 'You-Projectuic' ]]
+      then
+      #有两个的，是有Internal的负载
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+    fi
+
+    if [[ ${webent} == 'You-Project' ]] || [[  ${webent} == 'You-Project' ]]
+      then
+      #有多台，无internal
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+      #07 先发，灰度
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+    fi      
+    if [[ ${webent} == 'You-ProjectopenApi' ]]
+      then
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+    fi
+    if [[ ${webent} == 'You-Project-wxapp' ]]
+      then
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+    fi
+    if [[ ${webent} == 'You-Project-wxapp' ]]
+      then
+      bash /home/user/ci/slb.sh balanceID ECSID 0
+    fi
+  done
+    echo "####### ############ loadblance set finished"
+fi
+
+#编译依赖
+if [[ -n "${webents[*]}" ]] || [[ -n "${_rpc[*]}" ]]
+  then
+  get_repository Arhas
+  pull_code ${GIT_HOME}
+  #记录发布日志
+  echo -e "`date` pub:\n webent:${webents[*]}\n RPC:${_rpc[*]}\ngit branch:`git log -1 --oneline`\n=======depart-line========" >> /home/user/publog.log
+  build_agg You-Projectaggregator
+fi
+
+#编译发布的rpc
+if [[ -n "${_rpc[*]}" ]]
+  then
+  #编译发布RPC
+  for rpc in "${_rpc[@]}"
+  do
+    build ${rpc} product
+    if [[ ${rpc} == 'You-Project-rpc' ]]
+      then
+      remote_deploy_rpc ${rpc} XXX.XXX.XXX.19 XXX.XXX.XXX.19:X1XX
+    fi
+
+    if [[ ${rpc} == 'You-Projectmdata-rpc' ]]
+      then
+      remote_deploy_rpc ${rpc} XXX.XXX.XXX.19 XXX.XXX.XXX.19:X3XX
+    fi       
+
+    if [[ ${rpc} == 'You-Projectsn-rpc' ]]
+      then
+      remote_deploy_rpc ${rpc} XXX.XXX.XXX.19 XXX.XXX.XXX.19:X5XX
+    fi  
+
+    if [[ ${rpc} == 'You-Projectuic-rpc' ]]
+      then
+      remote_deploy_rpc ${rpc} XXX.XXX.XXX.19 XXX.XXX.XXX.19:X4XX
+    fi
+
+    if [[ ${rpc} == 'You-Project-rpc' ]]
+      then
+      remote_deploy_rpc ${rpc} XXX.XXX.XXX.19 XXX.XXX.XXX.19:X2XX
+    fi
+
+    if [[ ${rpc} == 'You-Projectfic-rpc' ]]
+      then
+      remote_deploy_rpc ${rpc} XXX.XXX.XXX.19 XXX.XXX.XXX.19:X8XX
+    fi
+    
+    if [[ ${rpc} == 'You-Projectmsg-mid' ]]
+      then
+      remote_deploy_rpc ${rpc} XXX.XXX.XXX.19 
+    fi 
+  done
+fi
+
+#编译的wbent
+if [[ -n "${webents}" ]]
+  then
+  #webent build
+  for webent in ${webents[@]} ;do
+    build ${webent} product       
+  done
+fi
+
+# 发布，异步执行
+if [[ -n "${webents}" ]]
+  then
+  for webent in ${webents[@]} ;do
+    (
+     if [[ ${webent} == 'You-Project' ]] || [[  ${webent} == 'You-Project' ]] 
+       then
+       bash /home/user/static_pro.sh You-Project
+       echo "####### 静态资源发布完成"
+       echo "####### ${webent}  XXX.XXX.XXX.25 sites"             
+       remote_whether_changed XXX.XXX.XXX.25 ${default_log_path}shop${log_tail} 90
+       remote_kill_process XXX.XXX.XXX.25 servers/
+       remote_deploy_war ${webent} XXX.XXX.XXX.25 ${pub_path}
+     fi  
+     )&
+
+    (
+      if [[ ${webent} == 'You-Projectuic' ]]
+        then
+        echo "####### ${webent}  XXX.XXX.XXX.10 sites"
+        remote_whether_changed XXX.XXX.XXX.10  ${default_log_path}passpt${log_tail} 90
+        remote_kill_process XXX.XXX.XXX.10 servers/
+        remote_deploy_war ${webent} XXX.XXX.XXX.10 ${pub_path}     
+      fi
+        )&
+
+    (
+      if [[ ${webent} == 'You-Project' ]] || [[  ${webent} == 'You-Project' ]]
+        then
+        bash /home/user/static_pro.sh You-Project
+        echo "####### 静态资源发布完成"
+        #这里处理不严密，XX不代表所有，原因是部署在一起，处理不便。
+        echo "####### Balance XX ########## ${webent}  XXX.XXX.XXX.18 sites"
+        remote_whether_changed XXX.XXX.XXX.18 /arthas/logs/tomcat/XX/${log_tail} 90
+        remote_kill_process XXX.XXX.XXX.18 servers/
+        remote_deploy_war ${webent} XXX.XXX.XXX.18 ${pub_path}
+        echo "####### Balance 02 ########## ${webent}  XXX.XXX.XXX.14 sites"
+        remote_kill_process XXX.XXX.XXX.14 servers/
+        remote_deploy_war ${webent} XXX.XXX.XXX.14 ${pub_path}
+        echo "####### Balance 02 ########## ${webent}  XXX.XX.XXX.103 sites"
+        remote_kill_process XXX.XX.XXX.103 servers/
+        remote_deploy_war ${webent} XXX.XX.XXX.103 ${pub_path}       
+      fi
+      )&
+
+    (
+      if [[ ${webent} == 'You-ProjectopenApi' ]] 
+        then
+        echo "####### ${webent}  XXX.XXX.XXX.8 sites"
+        remote_whether_changed ${webent} XXX.XXX.XXX.8 ${default_log_path}open${log_tail} 60
+        remote_kill_process XXX.XXX.XXX.8 servers/
+        remote_deploy_war ${webent} XXX.XXX.XXX.8 ${pub_path}
+      fi
+      )&
+  #小程序
+  (
+    if [[ ${rpc} == 'You-Project-wxapp' ]]
+      then
+      remote_whether_changed ${webent} XXX.XX.XXX.107 /arthas/sites/-wxapp/-wxapp${log_tail} 90
+      remote_deploy_little ${rpc} XXX.XX.XXX.107
+    fi
+    )&
+
+  (
+    if [[ ${rpc} == 'You-Project-wxapp' ]]
+      then
+      remote_whether_changed ${webent} XXX.XX.XXX.107 /arthas/sites/-wxapp/-wxapp${log_tail} 90
+      remote_deploy_little ${rpc} XXX.XX.XXX.107
+    fi
+    )&
+
+done
+fi
+
+#等待所有发布进行完成
+wait 
+
+#执行重启操作，避免重复启动，部署在一起的项目仅重新启动一次，因而有多个循环
+if [[ -n "${webents}" ]]
+  then
+  for webent in ${webents[@]} ;do
+    if [[ ${webent} == 'You-Project' ]] || [[  ${webent} == 'You-Project' ]]
+      then
+      echo "####### remote_restartom  XXX.XXX.XXX.25 "             
+      remote_restartom XXX.XXX.XXX.25 servers
+      break
+    fi  
+  done
+
+  for webent in ${webents[@]} ;do
+    if [[ ${webent} == 'You-Projectuic' ]]
+      then
+      echo "####### remote_restartom  XXX.XXX.XXX.10 sites"
+      remote_restartom XXX.XXX.XXX.10 servers
+    fi
+    done
+
+    for webent in ${webents[@]} ;do
+      if [[ ${webent} == 'You-Project' ]] || [[  ${webent} == 'You-Project' ]]
+        then
+        echo "####### remote_restartom XXX.XXX.XXX.18"
+        remote_restartom XXX.XXX.XXX.18 servers
+        echo "####### remote_restartom XXX.XXX.XXX.14"
+        remote_restartom XXX.XXX.XXX.14 servers
+        echo "####### remote_restartom XXX.XX.XXX.103"
+        remote_restartom XXX.XX.XXX.103 servers
+        break
+      fi
+    done
+
+    for webent in ${webents[@]} ;do
+
+      if [[  ${webent} == 'You-ProjectopenApi' ]]
+        then
+        echo "####### remote_restartom  XXX.XXX.XXX.8 "
+        remote_restartom XXX.XXX.XXX.8 servers
+      fi
+    done 
+  echo "####### wait tomcat to start ......."       
+  fi
+
+
+if [[ -n "${webents}" ]]
+  then
+  #调用阿里云slb api，具体请参考官方文档
+  echo "####### ############ loadblance set start"
+  for webent in ${webents[@]}
+  do
+    (
+    if [[ ${webent} == 'You-Project' ]] || [[  ${webent} == 'You-Project' ]] 
+      then
+      remote_whether_changed XXX.XXX.XXX.25 ${default_log_path}catalina.out 5
+      bash /home/user/ci/slb.sh balanceID ECSID 50
+    fi  
+
+    if [[ ${webent} == 'You-Projectuic' ]]
+      then
+        #有两个的，是有Internal的负载
+        remote_whether_changed XXX.XXX.XXX.10  ${default_log_path}catalina.out 5
+        bash /home/user/ci/slb.sh lb-bp1rywgknndomxkflwx1c ECSID 50
+        bash /home/user/ci/slb.sh lb-bp1rywgknndomxkflwx1c ECSID 50 
+      fi
+
+      if [[ ${webent} == 'You-Project' ]] || [[  ${webent} == 'You-Project' ]]
+        then
+        #有多台，无internal
+        remote_whether_changed XXX.XXX.XXX.18 /arthas/logs/tomcat/XX/catalina.out 5
+        bash /home/user/ci/slb.sh balanceID ECSID 50
+        bash /home/user/ci/slb.sh balanceID ECSID 50
+        bash /home/user/ci/slb.sh balanceID ECSID 50
+      fi
+      bash /home/user/ci/slb.sh        
+      if [[   ${webent} == 'You-ProjectopenApi' ]]
+        then
+        remote_whether_changed ${webent} XXX.XXX.XXX.8 ${default_log_path}catalina.out 5
+        bash /home/user/ci/slb.sh balanceID ECSID 50
+        bash /home/user/ci/slb.sh balanceID ECSID 50
+
+      fi
+      if [[ ${webent} == 'You-Project-wxapp' ]]
+        then
+        remote_whether_changed XXX.XX.XXX.107 /arthas/sites/-wxapp/You-Project-wxapp.log 5
+        bash /home/user/ci/slb.sh balanceID ECSID 50
+      fi
+      if [[ ${webent} == 'You-Project-wxapp' ]]
+        then
+        remote_whether_changed XXX.XX.XXX.107 /arthas/sites/-wxapp/You-Project-wxapp.log 5
+        bash /home/user/ci/slb.sh balanceID ECSID 50
+      fi
+      echo "####### ############ ${webent} loadblance set finished #########"
+      )&
+    done
+  fi
+echo "####### deploy finished: `date`"
